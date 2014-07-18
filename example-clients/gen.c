@@ -7,7 +7,8 @@
 #include <jack/jack.h>
 #include "meta/jackey.h"
 #include "meta/jack_osc.h"
-#include <lo/lo.h>
+//#include <lo/lo.h>
+#include <rtosc/rtosc.h>
 #include <math.h>
 
 //tb/140511/140513
@@ -155,7 +156,7 @@ double ms_to_samples(double duration);
 double samples_to_ms(double samples);
 
 double midi_note_to_samples(int midi_note_number);
-double midi_note_symbol_to_samples(char* midi_note_symbol);
+double midi_note_symbol_to_samples(const char* midi_note_symbol);
 
 double midi_note_to_herz(int midi_note_number);
 double herz_to_wavelength(double frequency);
@@ -181,7 +182,7 @@ struct JackProps
 	int sampling_rate;
 	int samples_per_period;
 	int transport_state; //0: stopped, 1: started
-}; 
+};
 struct JackProps jack;
 
 //==================================================================
@@ -198,7 +199,7 @@ struct Generator
 {
 	int status;
 
-	int shape; 
+	int shape;
 	double pulse_length; //[samples] 0: all low, shape period length: all high
 	int pulse_length_auto; //automatically recalc pulse length when frequency changes
 
@@ -239,7 +240,7 @@ struct Duration
 
 	double samples;
 	double beats; //for calculation of n beats duration, current freq / bmp used
-	double jack_cycles; 
+	double jack_cycles;
 	double ms; //[ms]
 };
 struct Duration dur;
@@ -259,7 +260,7 @@ struct Frequency
 	double beats_per_minute;
 	double samples_per_period; //shape period size (!= jack period size)
 	double jack_cycles;
-	double wavelength; //[mm] 
+	double wavelength; //[mm]
 	double speed_of_sound; //[m/s]
 	double period_duration; //[ms]
 };
@@ -269,16 +270,16 @@ struct Frequency freq;
 
 //twelve-tone equal temperament, 12-TET
 //http://en.wikipedia.org/wiki/Note
-//The note-naming convention specifies a letter, any accidentals, and an octave number. 
-//Any note is an integer of half-steps away from middle A (A4). Let this distance be denoted n. 
-//If the note is above A4, then n is positive; if it is below A4, then n is negative. 
+//The note-naming convention specifies a letter, any accidentals, and an octave number.
+//Any note is an integer of half-steps away from middle A (A4). Let this distance be denoted n.
+//If the note is above A4, then n is positive; if it is below A4, then n is negative.
 //The frequency of the note (f) (assuming equal temperament) is then:
 
 //f = 2^(n/12) * 440hz
 
-//The distance of an equally tempered semitone is divided into 100 cents. 
-//So 1200 cents are equal to one octave — a frequency ratio of 2:1. 
-//This means that a cent is precisely equal to the 1200th root of 2, 
+//The distance of an equally tempered semitone is divided into 100 cents.
+//So 1200 cents are equal to one octave — a frequency ratio of 2:1
+//This means that a cent is precisely equal to the 1200th root of 2,
 //which is approximately 1.000578.
 
 //p: midi note number
@@ -313,7 +314,7 @@ void minimal_test()
 	printf("period duration (0.2267573696) to samples %f\n",ms_to_samples(0.2267573696));
 	printf("samples to period duration %f\n",samples_to_ms(ms_to_samples(0.2267573696)));
 
-	//set_all_freq(wavelength_to_samples(0.123d)); 
+	//set_all_freq(wavelength_to_samples(0.123d));
 	//set_all_freq(ms_to_samples(1.0d));
 	//set_all_freq(midi_note_to_samples(69));
 	//set_all_freq(midi_note_symbol_to_samples("A4"));
@@ -345,7 +346,7 @@ void setup()
 	//set_all_freq(bpm_to_samples(120.0d));
 	//set_all_freq(44100.0d);
 	//set_all_freq(jack_cycles_to_samples(-2));
-	//set_all_freq(wavelength_to_samples(0.123d)); 
+	//set_all_freq(wavelength_to_samples(0.123d));
 	//set_all_freq(ms_to_samples(1.0d));
 	//set_all_freq(midi_note_to_samples(69));
 	//set_all_freq(midi_note_symbol_to_samples("A4"));
@@ -408,7 +409,7 @@ static int process (jack_nframes_t frames, void* arg)
 
 	int i;
 	//iterate over encapsulated osc messages
-	for (i = 0; i < msgCount; ++i) 
+	for (i = 0; i < msgCount; ++i)
 	{
 		jack_osc_event_t event;
 		int r;
@@ -419,13 +420,15 @@ static int process (jack_nframes_t frames, void* arg)
 			//check if osc data, skip if other
 			if(*event.buffer!='/'){continue;}
 
-			path=lo_get_path(event.buffer,event.size);
+            const char *msg = (const char*)event.buffer;
+			const char *path=msg;
 			int result;
-			lo_message msg = lo_message_deserialise(event.buffer, event.size, &result);
-			types=lo_message_get_types(msg);
+			const char *types=rtosc_argument_string(msg);
 
-			lo_arg** args=lo_message_get_argv(msg);
-			int argc=lo_message_get_argc(msg);
+            rtosc_arg_t arg;
+			int argc=rtosc_narguments(msg);
+            if(argc)
+                arg = rtosc_argument(msg, 0);
 
 			if(argc==0 && !strcmp(path,"/print/info"))
 			{
@@ -441,83 +444,83 @@ static int process (jack_nframes_t frames, void* arg)
 				gen.shape=SHAPE_SQUARE;
 			}
 			//===
-			else if(!strcmp(path,"/freq/samples") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/samples") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(args[0]->f);
+				set_all_freq(arg.f);
 			}
-			else if(!strcmp(path,"/freq/samples/rel") && !strcmp(types,"f") && args[0]->f != 0)
+			else if(!strcmp(path,"/freq/samples/rel") && !strcmp(types,"f") && arg.f != 0)
 			{
-				float sm=freq.samples_per_period+args[0]->f;
+				float sm=freq.samples_per_period+arg.f;
 				set_all_freq(sm);
 			}
-			else if(!strcmp(path,"/freq/herz") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/herz") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(herz_to_samples(args[0]->f));
+				set_all_freq(herz_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/freq/herz/rel") && !strcmp(types,"f") && args[0]->f != 0)
+			else if(!strcmp(path,"/freq/herz/rel") && !strcmp(types,"f") && arg.f != 0)
 			{
-				float hz=freq.herz+args[0]->f;
+				float hz=freq.herz+arg.f;
 				set_all_freq(herz_to_samples(hz));
 			}
-			else if(!strcmp(path,"/freq/bpm") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/bpm") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(bpm_to_samples(args[0]->f));
+				set_all_freq(bpm_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/freq/bpm/rel") && !strcmp(types,"f") && args[0]->f != 0)
+			else if(!strcmp(path,"/freq/bpm/rel") && !strcmp(types,"f") && arg.f != 0)
 			{
-				float bpm=freq.beats_per_minute+args[0]->f;
+				float bpm=freq.beats_per_minute+arg.f;
 				set_all_freq(bpm_to_samples(bpm));
 			}
-			else if(!strcmp(path,"/freq/jack_cycles") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/jack_cycles") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(jack_cycles_to_samples(args[0]->f));
+				set_all_freq(jack_cycles_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/freq/jack_cycles/rel") && !strcmp(types,"f") && args[0]->f != 0)
+			else if(!strcmp(path,"/freq/jack_cycles/rel") && !strcmp(types,"f") && arg.f != 0)
 			{
-				float nth=freq.jack_cycles+args[0]->f;
+				float nth=freq.jack_cycles+arg.f;
 				set_all_freq(jack_cycles_to_samples(nth));
 			}
-			else if(!strcmp(path,"/freq/wavelength") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/wavelength") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(wavelength_to_samples(args[0]->f));
+				set_all_freq(wavelength_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/freq/period_duration") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/period_duration") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(ms_to_samples(args[0]->f));
+				set_all_freq(ms_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/freq/period_duration/rel") && !strcmp(types,"f") && args[0]->f != 0)
+			else if(!strcmp(path,"/freq/period_duration/rel") && !strcmp(types,"f") && arg.f != 0)
 			{
-				float dur=freq.period_duration+args[0]->f;
+				float dur=freq.period_duration+arg.f;
 				set_all_freq(ms_to_samples(dur));
 			}
-			else if(!strcmp(path,"/freq/multiply") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/multiply") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_freq(freq.samples_per_period/args[0]->f);
+				set_all_freq(freq.samples_per_period/arg.f);
 			}
-			else if(!strcmp(path,"/freq/a4_ref") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/a4_ref") && !strcmp(types,"f") && arg.f > 0)
 			{
-				freq.a4_ref=args[0]->f;
+				freq.a4_ref=arg.f;
 				update_midi_notes();
 			}
-			else if(!strcmp(path,"/freq/speed_of_sound") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/freq/speed_of_sound") && !strcmp(types,"f") && arg.f > 0)
 			{
-				freq.speed_of_sound=args[0]->f;
+				freq.speed_of_sound=arg.f;
 				//recalc wavelength
 				set_all_freq(freq.samples_per_period);
 			}
-			else if(!strcmp(path,"/freq/midi_note") && !strcmp(types,"i") && args[0]->i >= 0)
+			else if(!strcmp(path,"/freq/midi_note") && !strcmp(types,"i") && arg.i >= 0)
 			{
-				set_all_freq(midi_note_to_samples(args[0]->i));
+				set_all_freq(midi_note_to_samples(arg.i));
 			}
-			else if(!strcmp(path,"/freq/midi_note/rel") && !strcmp(types,"i") && args[0]->i != 0)
+			else if(!strcmp(path,"/freq/midi_note/rel") && !strcmp(types,"i") && arg.i != 0)
 			{
 				int note=find_nearest_midi_note( freq.samples_per_period )
-					+ args[0]->i;
+					+ arg.i;
 				set_all_freq(midi_note_to_samples(note));
 			}
 			else if(!strcmp(path,"/freq/midi_note") && !strcmp(types,"s"))
 			{
-				set_all_freq(midi_note_symbol_to_samples(&args[0]->s));
+				set_all_freq(midi_note_symbol_to_samples(arg.s));
 			}
 			//===
 			// continue
@@ -530,9 +533,9 @@ static int process (jack_nframes_t frames, void* arg)
 			{
 				gen.status=STATUS_OFF;
 			}
-			else if(!strcmp(path,"/gen/restart_at") && !strcmp(types,"i") && args[0]->i > 0)
+			else if(!strcmp(path,"/gen/restart_at") && !strcmp(types,"i") && arg.i > 0)
 			{
-				gen.restart_at=args[0]->i;
+				gen.restart_at=arg.i;
 				gen.restart_pending=1;
 			}
 			else if(argc==0 && !strcmp(path,"/gen/stop"))
@@ -541,7 +544,7 @@ static int process (jack_nframes_t frames, void* arg)
 			}
 			else if(!strcmp(path,"/gen/loop_enable") && !strcmp(types,"i"))
 			{
-				if(args[0]->i == 1)
+				if(arg.i == 1)
 				{
 					gen.loop_enabled=1;
 				}
@@ -550,13 +553,13 @@ static int process (jack_nframes_t frames, void* arg)
 					gen.loop_enabled=0;
 				}
 			}
-			else if(!strcmp(path,"/gen/loop_gap") && !strcmp(types,"i") && args[0]->i > 0)
+			else if(!strcmp(path,"/gen/loop_gap") && !strcmp(types,"i") && arg.i > 0)
 			{
-				gen.loop_gap=args[0]->i;
+				gen.loop_gap=arg.i;
 			}
-			else if(!strcmp(path,"/gen/pulse_length") && !strcmp(types,"f") && args[0]->f >= 0)
+			else if(!strcmp(path,"/gen/pulse_length") && !strcmp(types,"f") && arg.f >= 0)
 			{
-				gen.pulse_length=args[0]->f;
+				gen.pulse_length=arg.f;
 
 				if(gen.pulse_length>=freq.samples_per_period)
 				{
@@ -567,9 +570,9 @@ static int process (jack_nframes_t frames, void* arg)
 					fprintf(stderr,"warning: pulse length == 0!\n");
 				}
 			}
-			else if(!strcmp(path,"/gen/pulse_length_ratio") && !strcmp(types,"f") && args[0]->f >= 0)
+			else if(!strcmp(path,"/gen/pulse_length_ratio") && !strcmp(types,"f") && arg.f >= 0)
 			{
-				gen.pulse_length=freq.samples_per_period*args[0]->f;
+				gen.pulse_length=freq.samples_per_period*arg.f;
 
 				if(gen.pulse_length>=freq.samples_per_period)
 				{
@@ -586,7 +589,7 @@ static int process (jack_nframes_t frames, void* arg)
 			}
 			else if(!strcmp(path,"/gen/pulse_length_auto") && !strcmp(types,"i"))
 			{
-				if(args[0]->i==1)
+				if(arg.i==1)
 				{
 					gen.pulse_length_auto=1;
 					set_pulse_length_auto();
@@ -598,44 +601,44 @@ static int process (jack_nframes_t frames, void* arg)
 			}
 			else if(!strcmp(path,"/gen/amplify") && !strcmp(types,"f"))
 			{
-				gen.amplification=args[0]->f;
+				gen.amplification=arg.f;
 			}
 			else if(!strcmp(path,"/gen/dc_offset") && !strcmp(types,"f"))
 			{
-				gen.dc_offset=args[0]->f;
+				gen.dc_offset=arg.f;
 			}
 			else if(!strcmp(path,"/gen/limit_high") && !strcmp(types,"f"))
 			{
-				gen.limit_high=args[0]->f;
+				gen.limit_high=arg.f;
 			}
 			else if(!strcmp(path,"/gen/limit_low") && !strcmp(types,"f"))
 			{
-				gen.limit_low=args[0]->f;
+				gen.limit_low=arg.f;
 			}
 			//===
 			else if(argc==0 && !strcmp(path,"/duration/inf"))
 			{
 				set_all_duration(0);
 			}
-			else if(!strcmp(path,"/duration/samples") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/duration/samples") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_duration(args[0]->f);
+				set_all_duration(arg.f);
 			}
-			else if(!strcmp(path,"/duration/beats") && !strcmp(types,"f")  && args[0]->f > 0)
+			else if(!strcmp(path,"/duration/beats") && !strcmp(types,"f")  && arg.f > 0)
 			{
-				set_all_duration(beats_to_samples(args[0]->f));
+				set_all_duration(beats_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/duration/jack_cycles") && !strcmp(types,"f") && args[0]->f > 0)
+			else if(!strcmp(path,"/duration/jack_cycles") && !strcmp(types,"f") && arg.f > 0)
 			{
-				set_all_duration(jack_cycles_to_samples(args[0]->f));
+				set_all_duration(jack_cycles_to_samples(arg.f));
 			}
-			else if(!strcmp(path,"/duration/ms") && !strcmp(types,"f") && args[0]->f > 0) //ms
+			else if(!strcmp(path,"/duration/ms") && !strcmp(types,"f") && arg.f > 0) //ms
 			{
-				set_all_duration(ms_to_samples(args[0]->f));
+				set_all_duration(ms_to_samples(arg.f));
 			}
 			else if(!strcmp(path,"/duration/follow_transport") && !strcmp(types,"i"))
 			{
-				if(args[0]->i==1)
+				if(arg.i==1)
 				{
 					dur.follow_transport=1;
 				}
@@ -648,8 +651,6 @@ static int process (jack_nframes_t frames, void* arg)
 			////////
 			//cents
 			//gloabl offset
-
-			lo_message_free(msg);
 		}
 	} //end processing osc messages
 
@@ -784,7 +785,7 @@ static int process (jack_nframes_t frames, void* arg)
 int main (int argc, char* argv[])
 {
 	client = jack_client_open (client_name, JackNullOption, NULL);
-	if (client == NULL) 
+	if (client == NULL)
 	{
 		printf ("could not create JACK client\n");
 		return 1;
@@ -795,7 +796,7 @@ int main (int argc, char* argv[])
 	port_in = jack_port_register (client, "in", JACK_DEFAULT_OSC_TYPE, JackPortIsInput, 0);
 	port_out = jack_port_register (client, "out", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
 
-	if (port_in == NULL || port_out == NULL) 
+	if (port_in == NULL || port_out == NULL)
 	{
 		fprintf (stderr, "could not register port\n");
 		return 1;
@@ -831,7 +832,7 @@ int main (int argc, char* argv[])
 	printf("ready\n");
 
 	/* run until interrupted */
-	while (1) 
+	while (1)
 	{
 		//sleep(1);
 		usleep(100000);
@@ -916,13 +917,13 @@ double ms_to_samples(double duration)
 //[ms]
 double samples_to_ms(double samples)
 {
-	return 1000*samples/jack.sampling_rate; 
+	return 1000*samples/jack.sampling_rate;
 }
 double midi_note_to_samples(int midi_note_number)
 {
 	return herz_to_samples(midi_note_to_herz(midi_note_number));
 }
-double midi_note_symbol_to_samples(char* midi_note_symbol)
+double midi_note_symbol_to_samples(const char* midi_note_symbol)
 {
 	//get compare to created symbols in array instead of parsing input
 	int i;
