@@ -420,7 +420,7 @@ static int process (jack_nframes_t frames, void* arg)
 			//check if osc data, skip if other
 			if(*event.buffer!='/'){continue;}
 
-            const char *msg = (const char*)event.buffer;
+			const char *msg = (const char*)event.buffer;
 			const char *path=msg;
 			int result;
 			const char *types=rtosc_argument_string(msg);
