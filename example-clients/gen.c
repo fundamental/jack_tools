@@ -425,10 +425,12 @@ static int process (jack_nframes_t frames, void* arg)
 			int result;
 			const char *types=rtosc_argument_string(msg);
 
-            rtosc_arg_t arg;
+			rtosc_arg_t arg;
 			int argc=rtosc_narguments(msg);
-            if(argc)
-                arg = rtosc_argument(msg, 0);
+			if(argc)
+			{
+				arg = rtosc_argument(msg, 0);
+			}
 
 			if(argc==0 && !strcmp(path,"/print/info"))
 			{
